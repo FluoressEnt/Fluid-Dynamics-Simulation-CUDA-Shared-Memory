@@ -12,39 +12,104 @@ void Solver::CalculateWrapper() {
 	dim3 sBlockSize(BRES + 2, BRES + 2);
 	dim3 sGridSize = dim3((RES + sBlockSize.x) / (sBlockSize.x - 2), (RES + sBlockSize.y) / (sBlockSize.y - 2));
 
-	//global memory kernel
-	cAddSourceKernel << <gGridSize, gBlockSize >> > (cSDens, cNewDens, cOldDens);
+	//diffusion part
+	cAddSourceK << <gGridSize, gBlockSize >> > (cSDens, cNewDens, cOldDens);
 
 	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
-		//shared memory kernel
-		cCalcDens << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewDens, cOldDens);
-		//global memory kernel
-		cCalcBound << <gGridSize, gBlockSize >> > (cNewDens);
+		cCalcDiffusion << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewDens, cOldDens);
+		cCalcBound << <gGridSize, gBlockSize >> > (1, cNewDens);
 	}
-	//shared memory kernal
-	cCalcAdv << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cSVelX, cSVelY, cNewDens, cOldDens);
+	cCalcAdvection << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cNewVelY, cNewDens, cOldDens);
+
+	//velocity part
+	cAddSourceK << <gGridSize, gBlockSize >> > (cSVelX, cNewVelX, cOldVelX);
+	cAddSourceK << <gGridSize, gBlockSize >> > (cSVelY, cNewVelY, cOldVelY);
+
+	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
+		cCalcDiffusion << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cOldVelX);
+		cCalcBound << <gGridSize, gBlockSize >> > (1, cNewVelX);
+	}
+	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
+		cCalcDiffusion << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelY, cOldVelY);
+		cCalcBound << <gGridSize, gBlockSize >> > (2, cNewVelY);
+	}
+
+	cCalcProjY << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cNewVelY, cOldVelX, cOldVelY);
+	cCalcBound << <gGridSize, gBlockSize >> > (0, cOldVelY);
+	cCalcBound << <gGridSize, gBlockSize >> > (0, cOldVelX);
+
+	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
+		cCalcProjX << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cOldVelX, cOldVelY);
+		cCalcBound << <gGridSize, gBlockSize >> > (0, cOldVelX);
+	}
+
+	cCalcFinalProj << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cNewVelY, cOldVelX);
+	cCalcBound << <gGridSize, gBlockSize >> > (1, cNewVelX);
+	cCalcBound << <gGridSize, gBlockSize >> > (2, cNewVelY);
+
+	cSwapPtr << <gGridSize, gBlockSize >> > (cOldVelX, cNewVelX);
+	cSwapPtr << <gGridSize, gBlockSize >> > (cOldVelY, cNewVelY);
+
+	cCalcAdvection << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cOldVelX, cOldVelX, cOldVelY);
+	cCalcAdvection << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelY, cOldVelY, cOldVelX, cOldVelY);
+
+	cCalcProjY << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cNewVelY, cOldVelX, cOldVelY);
+	cCalcBound << <gGridSize, gBlockSize >> > (0, cOldVelY);
+	cCalcBound << <gGridSize, gBlockSize >> > (0, cOldVelX);
+
+	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
+		cCalcProjX << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cOldVelX, cOldVelY);
+		cCalcBound << <gGridSize, gBlockSize >> > (0, cOldVelX);
+	}
+
+	cCalcFinalProj << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cNewVelY, cOldVelX);
+	cCalcBound << <gGridSize, gBlockSize >> > (1, cNewVelX);
+	cCalcBound << <gGridSize, gBlockSize >> > (2, cNewVelY);
 }
 
-__global__ void cAddSourceKernel(float* cSDens, float* cNewDens, float* cOldDens) {
-	cAddSource(cNewDens, cSDens);
+//global memory kernel
+__global__ void cAddSourceK(float* inputArr, float* arrayAffected, float* arrayToSwap) {
+	cAddSource(arrayAffected, inputArr);
 	__syncthreads();
 
+	cSwap(&arrayToSwap, &arrayAffected);
+	__syncthreads();
+}
+//shared memory kernel
+__global__ void cCalcDiffusion(float* cNewDens, float* cOldDens) {
+	cDiffuse(cNewDens, cOldDens);
+	__syncthreads();
+}
+//shared memory kernel
+__global__ void cCalcAdvection(float* cNewVelX, float* cNewVelY, float* cNewDens, float* cOldDens) {
 	cSwap(&cOldDens, &cNewDens);
 	__syncthreads();
-}
 
-__global__ void cCalcDens(float* cNewDens, float* cOldDens) {
-	cDiffuse(1, cNewDens, cOldDens);
+	cAdvection(cOldDens, cNewDens, cNewVelX, cNewVelY);
 	__syncthreads();
 }
-
-__global__ void cCalcAdv(float* cSVelX, float* cSVelY, float* cNewDens, float* cOldDens) {
-	cSwap(&cOldDens, &cNewDens);
-	__syncthreads();
+//shared memory kernel
+__global__ void cCalcProjY(float* cNewVelX, float* cNewVelY, float* cOldVelX, float* cOldVelY) {
+	cProjectionInY(cNewVelX, cNewVelY, cOldVelX, cOldVelY);
+}
+//shared memory kernel
+__global__ void cCalcProjX(float* cOldVelX, float* cOldVelY) {
+	cProjectionInX(cOldVelX, cOldVelY);
+}
+//shared memory kernel
+__global__ void cCalcFinalProj(float* cNewVelX, float* cNewVelY, float* cOldVelX) {
+	cFinalProjection(cNewVelX, cNewVelY, cOldVelX);
 }
 
-__global__ void cCalcBound(float* cNewDens) {
-	cSetBound(1, cNewDens);
+//global memory kernel
+__global__ void cCalcBound(int b, float* cNewDens) {
+	cSetBound(b, cNewDens);
+}
+
+//global memory kernel
+__global__ void cSwapPtr(float* arrayOne, float* arrayTwo) {
+	cSwap(&arrayOne, &arrayTwo);
+	__syncthreads();
 }
 
 //global memory
@@ -61,7 +126,7 @@ __device__ void cAddSource(float* cNewDens, float *sourceArray) {
 }
 
 //shared memory
-__device__ void cDiffuse(int b, float* cNewDens, float* cOldDens) {
+__device__ void cDiffuse(float* cNewDens, float* cOldDens) {
 	int col = threadIdx.y;
 	int row = threadIdx.x;
 
@@ -93,8 +158,8 @@ __device__ void cAdvection(float* cNewDens, float* cOldDens, float* cVelX, float
 	int col = threadIdx.y;
 	int row = threadIdx.x;
 
-	//id is calculated with a -2*blockID to ensure that with a boundary to each block, every pixel onscreen will be calculated
-	int ID = (blockIdx.x * blockDim.x + threadIdx.x - 2 * blockIdx.x) + (RES + 2)*(blockIdx.y * blockDim.y + threadIdx.y - 2 * blockIdx.y);
+	int blockStart = blockIdx.x * (blockDim.x - 2) + (RES + 2) * blockIdx.y * (blockDim.y - 2);
+	int ID = blockStart + threadIdx.y * (RES + 2) + threadIdx.x;
 
 	//creating shared memory and populating it
 	//each thread fills an element of the block
@@ -128,57 +193,72 @@ __device__ void cAdvection(float* cNewDens, float* cOldDens, float* cVelX, float
 			+ distToLeft * (distToTop * sOldDens[bottom][right] + distToBottom * sOldDens[top][right]);
 	}
 }
-
+//shared memory
 __device__ void cFinalProjection(float* cNewVelX, float* cNewVelY, float* cOldVelX) {
-	int collumn = blockIdx.x * blockDim.x + threadIdx.x;
-	int row = blockIdx.y * blockDim.y + threadIdx.y;
-	int ID = row * (RES + 2) + collumn;
+	int col = threadIdx.y;
+	int row = threadIdx.x;
+
+	int blockStart = blockIdx.x * (blockDim.x - 2) + (RES + 2) * blockIdx.y * (blockDim.y - 2);
+	int ID = blockStart + threadIdx.y * (RES + 2) + threadIdx.x;
+
+	//creating shared memory and populating it
+	//each thread fills an element of the block
+	__shared__ float sOldVelX[BRES + 2][BRES + 2];
+	sOldVelX[col][row] = cOldVelX[ID];
+	__syncthreads();
 
 	float h = 1.0f / RES;
 
-	int xPos = cGetX(ID);
-	int yPos = cGetY(ID);
-
-	if ((xPos > 0) && (xPos <= RES) && (yPos > 0) && (yPos <= RES)) {
-		cNewVelX[ID] -= 0.5f*(cOldVelX[ID + 1] - cOldVelX[ID - 1]) / h;
-		cNewVelY[ID] -= 0.5f*(cOldVelX[ID + RES + 2] - cOldVelX[ID - RES - 2]) / h;
-
-		cSetBound(1, cNewVelX);
-		cSetBound(2, cNewVelY);
+	if ((row > 0) && (row < BRES + 1) && (col> 0) && (col < BRES + 1)) {
+		cNewVelX[ID] -= 0.5f*(sOldVelX[col][row + 1] - sOldVelX[col][row - 1]) / h;
+		cNewVelY[ID] -= 0.5f*(sOldVelX[col + 1][row] - sOldVelX[col - 1][row]) / h;
 	}
 }
+//shared memory
 __device__ void cProjectionInY(float* cNewVelX, float* cNewVelY, float* cOldVelX, float* cOldVelY) {
-	int collumn = blockIdx.x * blockDim.x + threadIdx.x;
-	int row = blockIdx.y * blockDim.y + threadIdx.y;
-	int ID = row * (RES + 2) + collumn;
+	int col = threadIdx.y;
+	int row = threadIdx.x;
+
+	int blockStart = blockIdx.x * (blockDim.x - 2) + (RES + 2) * blockIdx.y * (blockDim.y - 2);
+	int ID = blockStart + threadIdx.y * (RES + 2) + threadIdx.x;
+
+	//creating shared memory and populating it
+	//each thread fills an element of the block
+	__shared__ float sNewVelX[BRES + 2][BRES + 2];
+	__shared__ float sNewVelY[BRES + 2][BRES + 2];
+
+	sNewVelX[col][row] = cNewVelX[ID];
+	sNewVelY[col][row] = cNewVelY[ID];
+	__syncthreads();
 
 	float h = 1.0f / RES;
 
-	int xPos = cGetX(ID);
-	int yPos = cGetY(ID);
-
-	if ((xPos > 0) && (xPos <= RES) && (yPos > 0) && (yPos <= RES)) {
-		cOldVelY[ID] = -0.5f * h * (cNewVelX[ID + 1] - cNewVelX[ID - 1]
-			+ cNewVelY[ID + RES + 2] - cNewVelY[ID - RES - 2]);
+	if ((row > 0) && (row < BRES + 1) && (col > 0) && (col <= BRES + 1)) {
+		cOldVelY[ID] = -0.5f * h * (sNewVelX[col][row + 1] - sNewVelX[col][row - 1]
+			+ sNewVelY[col + 1][row] - sNewVelY[col - 1][row]);
 		cOldVelX[ID] = 0;
-
-		cSetBound(0, cOldVelY);
-		cSetBound(0, cOldVelX);
 	}
 }
+//shared memory
 __device__ void cProjectionInX(float* cOldVelX, float* cOldVelY) {
-	int collumn = blockIdx.x * blockDim.x + threadIdx.x;
-	int row = blockIdx.y * blockDim.y + threadIdx.y;
-	int ID = row * (RES + 2) + collumn;
+	int col = threadIdx.y;
+	int row = threadIdx.x;
 
-	int xPos = cGetX(ID);
-	int yPos = cGetY(ID);
+	int blockStart = blockIdx.x * (blockDim.x - 2) + (RES + 2) * blockIdx.y * (blockDim.y - 2);
+	int ID = blockStart + threadIdx.y * (RES + 2) + threadIdx.x;
 
-	if ((xPos > 0) && (xPos <= RES) && (yPos > 0) && (yPos <= RES)) {
-		cOldVelX[ID] = (cOldVelY[ID] + cOldVelX[ID - 1]
-			+ cOldVelX[ID + 1] + cOldVelX[ID - RES - 2] + cOldVelX[ID + RES + 2]) / 4;
+	//creating shared memory and populating it
+	//each thread fills an element of the block
+	__shared__ float sOldVelX[BRES + 2][BRES + 2];
+	__shared__ float sOldVelY[BRES + 2][BRES + 2];
 
-		cSetBound(0, cOldVelX);
+	sOldVelX[col][row] = cOldVelX[ID];
+	sOldVelY[col][row] = cOldVelY[ID];
+	__syncthreads();
+
+	if ((row > 0) && (row < BRES + 1) && (col > 0) && (col < BRES + 1)) {
+		cOldVelX[ID] = (sOldVelY[col][row] + sOldVelX[col][row - 1]
+			+ sOldVelX[col][row + 1] + sOldVelX[col - 1][row] + sOldVelX[col + 1][row]) / 4;
 	}
 }
 

@@ -7,7 +7,7 @@
 #ifndef DEFINES
 #define DEFINES
 
-#define RES 222										//resolution of the window  (needs to be divisible by BRES)
+#define RES 446										//resolution of the window  (needs to be divisible by BRES) working values:222
 #define ALENGTH (RES+2)*(RES+2)						//total array size
 
 #define VISC 1.0f									//viscosity constant
