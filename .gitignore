@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs/Fluid Dynamics Sim CUDA v2.0/v15/ipch/AutoPCH
+/.vs/Fluid Dynamics Sim CUDA v2.0/v15
+/Fluid Dynamics Sim CUDA v2.0/x64
+/Fluid Dynamics Sim CUDA v2.0/Fluid Dynamics Sim CUDA v2.0.vcxproj.user
+/x64
