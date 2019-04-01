@@ -51,7 +51,7 @@ private:
 extern "C" {
 #endif
 	//kernels
-	__global__ void cAddSourceK(float*, float*, float*);
+	__global__ void cAddSource(float*, float*, float*);
 	__global__ void cCalcDiffusion(float*, float*);
 	__global__ void cCalcAdvection(float*, float*, float*, float*);
 	__global__ void cCalcProjY(float*, float*, float*, float*);
@@ -61,19 +61,7 @@ extern "C" {
 	__global__ void cSwapPtr(float*, float*);
 
 	//methods
-	__device__ void cFinalProjection(float*, float*, float*);
-	__device__ void cProjectionInX(float*, float*);
-	__device__ void cProjectionInY(float*, float*, float*, float*);
-	__device__ void cAdvection(float *, float *, float *, float *);
-	__device__ void cDiffuse(float *, float *);
-	__device__ void cAddSource(float*, float *);
-
-	__device__ void cSetBound(int, float*);
 	__device__ void cSwap(float**, float**);
-
-	__device__ int cGetX(int);
-	__device__ int cGetY(int);
-	__device__ int cGetArrayPos(int, int);
 
 #ifdef __cplusplus
 }

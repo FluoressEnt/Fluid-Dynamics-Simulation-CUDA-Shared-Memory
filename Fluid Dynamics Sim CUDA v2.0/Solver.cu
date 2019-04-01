@@ -13,17 +13,19 @@ void Solver::CalculateWrapper() {
 	dim3 sGridSize = dim3((RES + sBlockSize.x) / (sBlockSize.x - 2), (RES + sBlockSize.y) / (sBlockSize.y - 2));
 
 	//diffusion part
-	cAddSourceK << <gGridSize, gBlockSize >> > (cSDens, cNewDens, cOldDens);
+	cAddSource << <gGridSize, gBlockSize >> > (cSDens, cNewDens, cOldDens);
 
 	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
 		cCalcDiffusion << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewDens, cOldDens);
 		cCalcBound << <gGridSize, gBlockSize >> > (1, cNewDens);
 	}
+
+	cSwapPtr << <gGridSize, gBlockSize >> > (cOldDens, cNewDens);
 	cCalcAdvection << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cNewVelY, cNewDens, cOldDens);
 
 	//velocity part
-	cAddSourceK << <gGridSize, gBlockSize >> > (cSVelX, cNewVelX, cOldVelX);
-	cAddSourceK << <gGridSize, gBlockSize >> > (cSVelY, cNewVelY, cOldVelY);
+	cAddSource << <gGridSize, gBlockSize >> > (cSVelX, cNewVelX, cOldVelX);
+	cAddSource << <gGridSize, gBlockSize >> > (cSVelY, cNewVelY, cOldVelY);
 
 	for (int GaussItterator = 0; GaussItterator < 20; GaussItterator++) {
 		cCalcDiffusion << <sGridSize, sBlockSize, (sBlockSize.x)*(sBlockSize.y) * sizeof(float) >> > (cNewVelX, cOldVelX);
@@ -68,65 +70,21 @@ void Solver::CalculateWrapper() {
 }
 
 //global memory kernel
-__global__ void cAddSourceK(float* inputArr, float* arrayAffected, float* arrayToSwap) {
-	cAddSource(arrayAffected, inputArr);
-	__syncthreads();
-
-	cSwap(&arrayToSwap, &arrayAffected);
-	__syncthreads();
-}
-//shared memory kernel
-__global__ void cCalcDiffusion(float* cNewDens, float* cOldDens) {
-	cDiffuse(cNewDens, cOldDens);
-	__syncthreads();
-}
-//shared memory kernel
-__global__ void cCalcAdvection(float* cNewVelX, float* cNewVelY, float* cNewDens, float* cOldDens) {
-	cSwap(&cOldDens, &cNewDens);
-	__syncthreads();
-
-	cAdvection(cOldDens, cNewDens, cNewVelX, cNewVelY);
-	__syncthreads();
-}
-//shared memory kernel
-__global__ void cCalcProjY(float* cNewVelX, float* cNewVelY, float* cOldVelX, float* cOldVelY) {
-	cProjectionInY(cNewVelX, cNewVelY, cOldVelX, cOldVelY);
-}
-//shared memory kernel
-__global__ void cCalcProjX(float* cOldVelX, float* cOldVelY) {
-	cProjectionInX(cOldVelX, cOldVelY);
-}
-//shared memory kernel
-__global__ void cCalcFinalProj(float* cNewVelX, float* cNewVelY, float* cOldVelX) {
-	cFinalProjection(cNewVelX, cNewVelY, cOldVelX);
-}
-
-//global memory kernel
-__global__ void cCalcBound(int b, float* cNewDens) {
-	cSetBound(b, cNewDens);
-}
-
-//global memory kernel
-__global__ void cSwapPtr(float* arrayOne, float* arrayTwo) {
-	cSwap(&arrayOne, &arrayTwo);
-	__syncthreads();
-}
-
-//global memory
-__device__ void cAddSource(float* cNewDens, float *sourceArray) {
+__global__ void cAddSource(float* inputArr, float* arrayAffected, float* arrayToSwap) {
 	int xPos = blockIdx.x * blockDim.x + threadIdx.x;
 	int yPos = blockIdx.y * blockDim.y + threadIdx.y;
 	int ID = xPos + (RES + 2)*yPos;
 
 	if ((xPos > 0) && (xPos <= RES) && (yPos > 0) && (yPos <= RES)) {
 		float temp;
-		temp = (DT * sourceArray[ID]);
-		cNewDens[ID] += temp;
+		temp = (DT * inputArr[ID]);
+		arrayAffected[ID] += temp;
 	}
-}
 
-//shared memory
-__device__ void cDiffuse(float* cNewDens, float* cOldDens) {
+	cSwap(&arrayToSwap, &arrayAffected);
+}
+//shared memory kernel
+__global__ void cCalcDiffusion(float* cNewDens, float* cOldDens) {
 	int col = threadIdx.y;
 	int row = threadIdx.x;
 
@@ -150,8 +108,8 @@ __device__ void cDiffuse(float* cNewDens, float* cOldDens) {
 			+ sNewDens[col - 1][row] + sNewDens[col + 1][row])) / (1 + 4 * A);
 	}
 }
-//shared memory
-__device__ void cAdvection(float* cNewDens, float* cOldDens, float* cVelX, float* cVelY) {
+//shared memory kernel
+__global__ void cCalcAdvection(float* cNewVelX, float* cNewVelY, float* cNewDens, float* cOldDens) {
 	int left, bottom, right, top;
 	float x, y, distToRight, distToTop, distToLeft, distToBottom;
 
@@ -164,13 +122,13 @@ __device__ void cAdvection(float* cNewDens, float* cOldDens, float* cVelX, float
 	//creating shared memory and populating it
 	//each thread fills an element of the block
 	__shared__ float sOldDens[BRES + 2][BRES + 2];
-	sOldDens[col][row] = cOldDens[ID];
+	sOldDens[col][row] = cNewDens[ID];
 	__syncthreads();
 
 	if ((row > 0) && (row < BRES + 1) && (col > 0) && (col < BRES + 1)) {
 
-		x = row - DT * RES * cVelX[ID];
-		y = col - DT * RES * cVelY[ID];
+		x = row - DT * RES * cNewVelX[ID];
+		y = col - DT * RES * cNewVelY[ID];
 
 		//neighbourhood of previous position
 		if (x < 0.5) x = 0.5f;
@@ -189,33 +147,12 @@ __device__ void cAdvection(float* cNewDens, float* cOldDens, float* cVelX, float
 		distToBottom = y - bottom;
 		distToTop = 1 - distToBottom;
 
-		cNewDens[ID] = distToRight * (distToTop * sOldDens[bottom][left] + distToBottom * sOldDens[top][left])
+		cOldDens[ID] = distToRight * (distToTop * sOldDens[bottom][left] + distToBottom * sOldDens[top][left])
 			+ distToLeft * (distToTop * sOldDens[bottom][right] + distToBottom * sOldDens[top][right]);
 	}
 }
-//shared memory
-__device__ void cFinalProjection(float* cNewVelX, float* cNewVelY, float* cOldVelX) {
-	int col = threadIdx.y;
-	int row = threadIdx.x;
-
-	int blockStart = blockIdx.x * (blockDim.x - 2) + (RES + 2) * blockIdx.y * (blockDim.y - 2);
-	int ID = blockStart + threadIdx.y * (RES + 2) + threadIdx.x;
-
-	//creating shared memory and populating it
-	//each thread fills an element of the block
-	__shared__ float sOldVelX[BRES + 2][BRES + 2];
-	sOldVelX[col][row] = cOldVelX[ID];
-	__syncthreads();
-
-	float h = 1.0f / RES;
-
-	if ((row > 0) && (row < BRES + 1) && (col> 0) && (col < BRES + 1)) {
-		cNewVelX[ID] -= 0.5f*(sOldVelX[col][row + 1] - sOldVelX[col][row - 1]) / h;
-		cNewVelY[ID] -= 0.5f*(sOldVelX[col + 1][row] - sOldVelX[col - 1][row]) / h;
-	}
-}
-//shared memory
-__device__ void cProjectionInY(float* cNewVelX, float* cNewVelY, float* cOldVelX, float* cOldVelY) {
+//shared memory kernel
+__global__ void cCalcProjY(float* cNewVelX, float* cNewVelY, float* cOldVelX, float* cOldVelY) {
 	int col = threadIdx.y;
 	int row = threadIdx.x;
 
@@ -239,8 +176,8 @@ __device__ void cProjectionInY(float* cNewVelX, float* cNewVelY, float* cOldVelX
 		cOldVelX[ID] = 0;
 	}
 }
-//shared memory
-__device__ void cProjectionInX(float* cOldVelX, float* cOldVelY) {
+//shared memory kernel
+__global__ void cCalcProjX(float* cOldVelX, float* cOldVelY) {
 	int col = threadIdx.y;
 	int row = threadIdx.x;
 
@@ -261,16 +198,37 @@ __device__ void cProjectionInX(float* cOldVelX, float* cOldVelY) {
 			+ sOldVelX[col][row + 1] + sOldVelX[col - 1][row] + sOldVelX[col + 1][row]) / 4;
 	}
 }
+//shared memory kernel
+__global__ void cCalcFinalProj(float* cNewVelX, float* cNewVelY, float* cOldVelX) {
+	int col = threadIdx.y;
+	int row = threadIdx.x;
 
-//global memory
-__device__ void cSetBound(int b, float* boundArray) {
+	int blockStart = blockIdx.x * (blockDim.x - 2) + (RES + 2) * blockIdx.y * (blockDim.y - 2);
+	int ID = blockStart + threadIdx.y * (RES + 2) + threadIdx.x;
+
+	//creating shared memory and populating it
+	//each thread fills an element of the block
+	__shared__ float sOldVelX[BRES + 2][BRES + 2];
+	sOldVelX[col][row] = cOldVelX[ID];
+	__syncthreads();
+
+	float h = 1.0f / RES;
+
+	if ((row > 0) && (row < BRES + 1) && (col > 0) && (col < BRES + 1)) {
+		cNewVelX[ID] -= 0.5f*(sOldVelX[col][row + 1] - sOldVelX[col][row - 1]) / h;
+		cNewVelY[ID] -= 0.5f*(sOldVelX[col + 1][row] - sOldVelX[col - 1][row]) / h;
+	}
+}
+
+//global memory kernel
+__global__ void cCalcBound(int b, float* boundArray) {
 	int row = blockIdx.x * blockDim.x + threadIdx.x;
 	int collumn = blockIdx.y * blockDim.y + threadIdx.y;
 	int ID = row + (RES + 2) * collumn;
 
 	int xPos, yPos;
-	xPos = cGetX(ID);
-	yPos = cGetY(ID);
+	xPos = ID % (RES + 2);
+	yPos = ID / (RES + 2);
 
 	if (xPos > 0 && xPos <= RES && yPos == 0) {
 		boundArray[ID] = b == 2 ? -boundArray[ID + RES + 2] : boundArray[ID + RES + 2];
@@ -299,6 +257,11 @@ __device__ void cSetBound(int b, float* boundArray) {
 	}
 }
 
+//Pointer swap kernel & method
+__global__ void cSwapPtr(float* arrayOne, float* arrayTwo) {
+	cSwap(&arrayOne, &arrayTwo);
+}
+
 __device__ void cSwap(float** arrayOne, float** arrayTwo) {
 	int collumn = blockIdx.x * blockDim.x + threadIdx.x;
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -309,16 +272,4 @@ __device__ void cSwap(float** arrayOne, float** arrayTwo) {
 		*arrayOne = *arrayTwo;
 		*arrayTwo = temp;
 	}
-}
-
-__device__ int cGetX(int arrayPos) {
-	return (arrayPos % (RES + 2));
-}
-
-__device__ int cGetY(int arrayPos) {
-	return (arrayPos / (RES + 2));
-}
-
-__device__ int cGetArrayPos(int xPos, int yPos) {
-	return xPos + (RES + 2)*yPos;
 }
