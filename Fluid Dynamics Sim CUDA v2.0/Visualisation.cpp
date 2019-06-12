@@ -21,15 +21,16 @@ float dt = 0.04f;
 float totalTime;
 int itteration;
 
+///A function that catches specific key presses
 void Visualisation::OnKeyDown(unsigned char key, int x, int y) {
 	switch (key) {
-	case 32:
+	case 32:									//spacebar - swap visualisation to render
 		diffuseDisplay = !diffuseDisplay;
 
-	case 82:
+	case 82:									//R - refreshes all arrays in simulation
 		fSolver.solver.RefreshAll();
 
-	case 114:
+	case 114:									//r - refreshes all arrays in simulation
 		fSolver.solver.RefreshAll();
 
 	case 116:
@@ -37,7 +38,7 @@ void Visualisation::OnKeyDown(unsigned char key, int x, int y) {
 	}
 
 }
-
+///A function that updates the X&Y position of the mouse or refreshes the input arrays on the GPU
 void Visualisation::OnMouseClick(int button, int state, int xPos, int yPos) {
 	if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
 		Visualisation::setMouseButtonState(true);
@@ -56,6 +57,8 @@ void Visualisation::OnMouseClick(int button, int state, int xPos, int yPos) {
 		}
 	}
 }
+///A function that refreshes the input arrays to 0, updates the X&Y position of the mouse
+///Then assigns that frames values for the inputof either density or velocity depenant on the current visualisation selected
 void Visualisation::OnMouseDrag(int xPos, int yPos) {
 	if (Visualisation::isMouseButtonDown() && xPos > 0 && xPos < RES) {
 		if (diffuseDisplay)
@@ -89,6 +92,7 @@ bool Visualisation::isMouseButtonDown() {
 	return mouseButtonDown;
 }
 
+///A function that determines the colour of a value using a clamped scale
 Colour3 Visualisation::DetermineColour(float value)
 {
 	//make sure not 0 or will return error
@@ -161,6 +165,8 @@ Colour3 Visualisation::DetermineColour(float value)
 	return Colour3(0.0f, 0.0f, 0.0f);
 }
 
+///A function that renders either the representation of diffusion or velocity field 
+///Calculated from on the most recent values from the GPU
 void Visualisation::Render()
 {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_ACCUM_BUFFER_BIT);
@@ -169,10 +175,12 @@ void Visualisation::Render()
 
 	if (diffuseDisplay) {
 		glBegin(GL_POINTS);
+		//retreive the solver's most recent density array from the GPU
 		float* calculatedDensity = fSolver.solver.GetDensityArray();
 
 		for (int i = 0; i < ALENGTH; i++) {
 
+			//determine point's colour based on a clamped scale
 			Colour3 colourValue = DetermineColour(calculatedDensity[i]);
 
 			tuple<int, int> coords = ConversionTools::ConvertArraytoCoord(i);
@@ -192,6 +200,7 @@ void Visualisation::Render()
 		glLineWidth(1.0f);
 		glColor3f(1.0f, 1.0f, 1.0f);
 
+		//retreive solver's most recent velocity arrays from the GPU
 		float* calculatedVelocityX = fSolver.solver.GetVelXArray();
 		float* calculatedVelocityY = fSolver.solver.GetVelYArray();
 
@@ -230,6 +239,9 @@ void Visualisation::Render()
 	}
 }
 
+///A function that calls the solver's calculate which calls the GPU kernel
+///Performs a GL redisplay after the algorithm has completed 1 itteration
+///Handles the reading of the timestep and itteration count
 void Visualisation::Calculate() {
 	auto start = high_resolution_clock::now();
 

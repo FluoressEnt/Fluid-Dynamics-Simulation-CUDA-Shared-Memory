@@ -3,12 +3,14 @@
 #include <cuda.h>
 #include "Solver.h"
 
+///function to swap the pointers of two arrays
 void swap(float **a, float **b) {
 	float *t = *a;
 	*a = *b;
 	*b = t;
 }
 
+///Creates kernels that run in parallel on the GPU
 void Solver::CalculateWrapper() {
 	//Shared memory block size declaration
 	dim3 sBlockSize(BRES + 2, BRES + 2);
@@ -131,7 +133,7 @@ void Solver::CalculateWrapper() {
 }
 
 
-//global memory kernel
+///global memory kernel that adds a source to array values
 __global__ void cAddSource(float* inputArr, float* arrayAffected) {
 	int xPos = blockIdx.x * blockDim.x + threadIdx.x;
 	int yPos = blockIdx.y * blockDim.y + threadIdx.y;
@@ -143,7 +145,7 @@ __global__ void cAddSource(float* inputArr, float* arrayAffected) {
 		arrayAffected[ID] += temp;
 	}
 }
-//shared memory kernel
+///shared memory kernel that calculates the diffusion of the fluid on th GPU
 __global__ void cCalcDiffusion(float* newArray, float* oldArray) {
 	int xDir = threadIdx.x;
 	int yDir = threadIdx.y;
@@ -167,8 +169,7 @@ __global__ void cCalcDiffusion(float* newArray, float* oldArray) {
 			+ sNewDens[yDir - 1][xDir] + sNewDens[yDir + 1][xDir])) / (1 + 4 * A);
 	}
 }
-//shared memory kernel
-//__global__ void cCalcAdvection(float* cVelX, float* cVelY, float* cNew, float* cOld) {
+///shared memory kernel that calculates the advection of the fluid on the GPU
 __global__ void cCalcAdvection(float* cNew, float* cOld, float* cVelX, float* cVelY) {
 	int left, bottom, right, top;
 	float x, y, distToRight, distToTop, distToLeft, distToBottom;
@@ -211,7 +212,7 @@ __global__ void cCalcAdvection(float* cNew, float* cOld, float* cVelX, float* cV
 			+ distToLeft * (distToTop * sOldDens[bottom][right] + distToBottom * sOldDens[top][right]);
 	}
 }
-//shared memory kernel
+///shared memory kernel that calculates a part of the projection of the fluid on the GPU
 __global__ void cCalcProjY(float* cNewVelX, float* cNewVelY, float* cOldVelX, float* cOldVelY) {
 	int xDir = threadIdx.x;
 	int yDir = threadIdx.y;
@@ -237,7 +238,7 @@ __global__ void cCalcProjY(float* cNewVelX, float* cNewVelY, float* cOldVelX, fl
 		cOldVelX[ID] = 0;
 	}
 }
-//shared memory kernel
+///shared memory kernel that calculates a part of the projection of the fluid on the GPU
 __global__ void cCalcProjX(float* cOldVelX, float* cOldVelY) {
 	int xDir = threadIdx.x;
 	int yDir = threadIdx.y;
@@ -258,7 +259,7 @@ __global__ void cCalcProjX(float* cOldVelX, float* cOldVelY) {
 			+ sOldVelX[yDir][xDir + 1] + sOldVelX[yDir - 1][xDir] + sOldVelX[yDir + 1][xDir]) / 4;
 	}
 }
-//shared memory kernel
+///shared memory kernel that calculates a part of the projection of the fluid on the GPU
 __global__ void cCalcFinalProj(float* cNewVelX, float* cNewVelY, float* cOldVelX) {
 	int xDir = threadIdx.x;
 	int yDir = threadIdx.y;
@@ -281,7 +282,7 @@ __global__ void cCalcFinalProj(float* cNewVelX, float* cNewVelY, float* cOldVelX
 	}
 }
 
-//global memory kernel
+///global memory kernel that sets the boundary of the fluid to one where fluid does not leave the grid
 __global__ void cCalcBound(int b, float* boundArray) {
 	int row = blockIdx.x * blockDim.x + threadIdx.x;
 	int collumn = blockIdx.y * blockDim.y + threadIdx.y;

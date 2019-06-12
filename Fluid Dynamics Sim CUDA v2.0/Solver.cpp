@@ -96,11 +96,6 @@ void Solver::SetInputVel(int arrayValue, int xVel, int yVel) {
 	CUDA_CHECK(cudaMemcpy(cSVelY, sVelY, ALENGTH * sizeof(float), cudaMemcpyHostToDevice));
 }
 
-float* Solver::GetInputDens() {
-	CUDA_CHECK(cudaMemcpy(sDens, cSDens, ALENGTH * sizeof(float), cudaMemcpyDeviceToHost));
-	return sDens;
-}
-
 void Solver::RefreshDensIn() {
 	for (auto i = 0u; i < ALENGTH; i++) {
 		sDens[i] = 0;
