@@ -2,10 +2,12 @@
 #include "ConversionTools.h"
 #include "Defines.h"
 #include <iostream>
+#include <chrono> 
 #include <gl/freeglut.h>
 
 
 using namespace std;
+using namespace std::chrono;
 
 mSolver Visualisation::fSolver;
 int mouseX;
@@ -14,6 +16,10 @@ int oldMouseX;
 int oldMouseY;
 bool mouseButtonDown = false;
 bool diffuseDisplay = true;
+
+float dt = 0.04f;
+float totalTime;
+int itteration;
 
 void Visualisation::OnKeyDown(unsigned char key, int x, int y) {
 	switch (key) {
@@ -25,6 +31,9 @@ void Visualisation::OnKeyDown(unsigned char key, int x, int y) {
 
 	case 114:
 		fSolver.solver.RefreshAll();
+
+	case 116:
+		cout << " itterations: " << itteration << " mean timestep: " << totalTime / itteration << endl;
 	}
 
 }
@@ -49,7 +58,6 @@ void Visualisation::OnMouseClick(int button, int state, int xPos, int yPos) {
 }
 void Visualisation::OnMouseDrag(int xPos, int yPos) {
 	if (Visualisation::isMouseButtonDown() && xPos > 0 && xPos < RES) {
-
 		if (diffuseDisplay)
 			fSolver.solver.RefreshDensIn();
 		else {
@@ -118,14 +126,32 @@ Colour3 Visualisation::DetermineColour(float value)
 		if (logValue < -40) {					//yellow
 			return Colour3(1.0f, 1.0f, 0.0f);
 		}
+		if (logValue < -35) {					//yellow
+			return Colour3(1.0f, 0.9f, 0.0f);
+		}
 		else if (logValue < -30) {				//yellow-orange
 			return Colour3(1.0f, 0.8f, 0.0f);
 		}
+		else if (logValue < -25) {				//orange
+			return Colour3(1.0f, 0.7f, 0.0f);
+		}
 		else if (logValue < -20) {				//orange
+			return Colour3(1.0f, 0.6f, 0.0f);
+		}
+		else if (logValue < -15) {				//orange-red
 			return Colour3(1.0f, 0.5f, 0.0f);
 		}
 		else if (logValue < -10) {				//orange-red
+			return Colour3(1.0f, 0.4f, 0.0f);
+		}
+		else if (logValue < -7) {				//red
+			return Colour3(1.0f, 0.3f, 0.0f);
+		}
+		else if (logValue < -5) {				//red
 			return Colour3(1.0f, 0.2f, 0.0f);
+		}
+		else if (logValue < -2) {				//red
+			return Colour3(1.0f, 0.1f, 0.0f);
 		}
 		else if (logValue < 0) {				//red
 			return Colour3(1.0f, 0.0f, 0.0f);
@@ -205,6 +231,17 @@ void Visualisation::Render()
 }
 
 void Visualisation::Calculate() {
+	auto start = high_resolution_clock::now();
+
 	fSolver.solver.CalculateWrapper();
+
+	auto end = high_resolution_clock::now();
+
+	duration<double> timeSpan = duration_cast<duration<double>>(end - start);
+	dt = timeSpan.count();
+
+	itteration++;
+	totalTime += dt;
+
 	glutPostRedisplay();
 }

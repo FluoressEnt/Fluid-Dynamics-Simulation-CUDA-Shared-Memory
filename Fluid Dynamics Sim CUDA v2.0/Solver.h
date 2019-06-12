@@ -51,17 +51,15 @@ private:
 extern "C" {
 #endif
 	//kernels
-	__global__ void cAddSource(float*, float*, float*);
+	__global__ void cAddSource(float*, float*);
 	__global__ void cCalcDiffusion(float*, float*);
 	__global__ void cCalcAdvection(float*, float*, float*, float*);
 	__global__ void cCalcProjY(float*, float*, float*, float*);
 	__global__ void cCalcProjX(float*, float*);
 	__global__ void cCalcFinalProj(float*, float*, float*);
 	__global__ void cCalcBound(int, float*);
-	__global__ void cSwapPtr(float*, float*);
 
-	//methods
-	__device__ void cSwap(float**, float**);
+	void swap(float**, float**);
 
 #ifdef __cplusplus
 }

@@ -10,8 +10,8 @@
 #define RES 446										//resolution of the window  (needs to be divisible by BRES) working values:222:446
 #define ALENGTH (RES+2)*(RES+2)						//total array size
 
-#define VISC 1.0f									//viscosity constant
-#define DT 0.04f									//static delta time
+#define VISC 0.005f									//viscosity constant
+#define DT 0.004f									//static delta time
 #define A DT * VISC * RES *RES						//conservation of diffusivity
 
 #define BRES 16										//resolution of blocksize
